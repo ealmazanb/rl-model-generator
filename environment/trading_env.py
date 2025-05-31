@@ -6,8 +6,8 @@ from register.register_module import RegisterModule
 
 class TradingEnv(gym.Env):
 
-    def __init__(self, df, assets, initial_liquidity, reserve, tp_min, tp_max, sl_min, sl_max, epsilon=0.2,
-                 use_logs=True, log_to_file=True, log_to_file_name="", min_trade_amount=200, liquidity_bonus=0.1):
+    def __init__(self, df, assets, initial_liquidity, reserve, tp_min, tp_max, sl_min, sl_max, epsilon=0.1,
+                 use_logs=True, log_to_file=True, log_to_file_name="", min_trade_amount=1000, liquidity_bonus=0.002):
         super().__init__()
         self.register = RegisterModule(f"logs/{log_to_file_name}") if log_to_file else None
         if self.register:
@@ -46,6 +46,8 @@ class TradingEnv(gym.Env):
         self.holdings = np.zeros(self.n_assets)
         self.initial_value = self.initial_liquidity
         self.prev_value = self.initial_value
+        self.max_value = self.initial_value
+        self.prev_action = None
         self.episode_returns = []
         return self._get_obs(), {}
 
@@ -74,7 +76,6 @@ class TradingEnv(gym.Env):
 
         for i, act in enumerate(action):
             timestamp = self.df.iloc[self.current_step]["timestamp"]
-
             if prices[i] <= 0 or np.isnan(prices[i]):
                 continue
             if act > self.epsilon:
@@ -82,51 +83,29 @@ class TradingEnv(gym.Env):
                 max_allocation = 0.3
                 max_amount = max_allocation * self.calculate_total_value()
                 amount = min(raw_amount, max_amount)
-                if prices[i] > 0:
-                    units = amount / prices[i]
-                else:
-                    units = 0.0
+                units = amount / prices[i] if prices[i] > 0 else 0.0
                 if amount >= self.min_trade_amount and self.liquidity >= amount:
                     self.liquidity -= amount
                     self.holdings[i] += units
                     if self.register:
                         self.register.record_operation(
-                            timestamp=timestamp,
-                            code=self.assets[i],
-                            price=prices[i],
-                            quantity=units,
-                            operation="buy",
-                            liquidity=self.liquidity,
-                            asset_value=self._calculate_asset_value()
+                            timestamp, self.assets[i], prices[i], units,
+                            "buy", self.liquidity, self._calculate_asset_value()
                         )
-
             elif act < -self.epsilon:
                 units = -act * self.holdings[i]
-                if prices[i] > 0:
-                    revenue = units * prices[i]
-                else:
-                    revenue = 0.0
-                    units = 0.0
+                revenue = units * prices[i] if prices[i] > 0 else 0.0
                 performance = (prices[i] - self.df.iloc[0][f'{self.assets[i]}_value']) / self.df.iloc[0][
                     f'{self.assets[i]}_value'] * 100
                 if self._can_sell(performance) and revenue >= self.min_trade_amount:
                     self.liquidity += revenue
                     self.holdings[i] -= units
                     if self.register:
-                        self.register.record_operation(
-                            timestamp=timestamp,
-                            code=self.assets[i],
-                            price=prices[i],
-                            quantity=units,
-                            operation="sell",
-                            liquidity=self.liquidity,
-                            asset_value=self._calculate_asset_value()
+                        self.register.record_operation(timestamp, self.assets[i], prices[i], units,
+                            "sell", self.liquidity, self._calculate_asset_value()
                         )
 
-            else:
-                pass  # hold
         self.current_step += 1
-
         terminated = bool(self.calculate_total_value() <= 0)
         truncated = bool(self.current_step >= len(self.df) - 1)
         new_value = self.calculate_total_value()
@@ -138,10 +117,10 @@ class TradingEnv(gym.Env):
         if terminated or truncated:
             total_return = sum(self.episode_returns)
             if self.use_logs:
-                print(f"[EPISODIO TERMINADO] Valor final: {self.calculate_total_value():,.2f} | Retorno acumulado: {total_return:.4f}")
+                print(f"[EPISODIO TERMINADO] Valor final: {new_value:,.2f} | Retorno acumulado: {total_return:.4f}")
         elif self.current_step % 1000 == 0:
             if self.use_logs:
-                print( f"[STEP {self.current_step}] Valor total: {self.calculate_total_value():,.2f} | Liquidez: {self.liquidity:,.2f}")
+                print(f"[STEP {self.current_step}] Valor total: {new_value:,.2f} | Liquidez: {self.liquidity:,.2f}")
 
         return self._get_obs(), reward, terminated, truncated, {}
 

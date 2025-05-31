@@ -1,5 +1,6 @@
 import os
 from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.env_checker import check_env
 from feature import FeatureEngineeringModule
 from ingestion import DataIngestionModule
@@ -14,6 +15,7 @@ SENTIMENT_DIR = 'sentiment'
 MACRO_DIR = 'macro'
 HISTORIC_DIR = 'historic'
 MODEL_OUTPUT = 'models'
+SAVES_CALLBACK_DIR = 'models/callback'
 FILES_DIR = 'files'
 
 initial_liquidity = 100_000
@@ -24,16 +26,16 @@ SL_MIN = 0
 SL_MAX = 9999999
 
 train_date_start = '2000-01-01'
-train_date_end = '2022-01-01'
+train_date_end = '2025-01-01'
 
-test_date_range_start = '2022-01-02'
-test_date_range_end = '2025-01-01'
+test_date_start = '2022-01-02'
+test_date_end = '2025-01-01'
 
-steps = 10_000_000
+steps = 15_000_000
 policy = 'MlpPolicy'
 
-log_filename = 'ppo_trading_agent_v1_22_25'
-model_name = 'ppo_trading_agent_v1'
+log_filename = 'ppo_trading_agent_v4_00_22'
+model_name = 'ppo_trading_agent_v4_15M_scaled'
 
 '''
 Data ingestion
@@ -86,30 +88,33 @@ historical_asset_files = {
     'tesla': 'tesla.csv',
     'us_bonds': 'us_bonds.csv',
 }
+utils = Utils()
 
 assets = ['gold', 'apple', 'boeing', 'johnson_johnson', 'oil', 'intel']
 sentiment_paths = {k: os.path.join(SENTIMENT_DIR, v) for k, v in sentiment_files.items()}
 macro_paths = {k: os.path.join(MACRO_DIR, v) for k, v in macro_files.items()}
 asset_paths = {k: os.path.join(HISTORIC_DIR, v) for k, v in historical_asset_files.items()}
 ingestor = DataIngestionModule(data_dir=BASE_INPUT_DIR)
-ingestor.ingest_sentiment_data(sentiment_paths)
 ingestor.ingest_macro_data(macro_paths)
 ingestor.ingest_asset_data(asset_paths)
 df = ingestor.align_all_data()
-
+df_test = utils.df_date_filter(
+    from_date=test_date_start,
+    to_date=test_date_end,
+    df=df
+)
 '''
 Part II - Feature engineering
 '''
 feature_module = FeatureEngineeringModule(df)
 feature_module.apply_to_all_assets(assets)
-feature_module.get_featured_data()
-df = feature_module.remove_na_rows()
-df.to_csv(f'{FILES_DIR}/full_dataset.csv', index=False)
+feature_module.remove_na_rows()
+feature_module.scale_standard(save_path="files/scaler.pkl")
+df = feature_module.get_featured_data()
 
 '''
 Part III Environment definition
 '''
-utils = Utils()
 
 df_train = utils.df_date_filter(
     from_date=train_date_start,
@@ -150,26 +155,40 @@ Param batch_size: Control the batches used to train the internal neural network 
 updates per epoch and stable training but slower corrections (128, 256, 512)
 '''
 model = PPO(
-    policy=policy,
+    policy='MlpPolicy',
     env=env,
     device="cuda",
     verbose=1,
-    ent_coef=0.015,
-    learning_rate=0.00015,
-    batch_size=64,
+    n_steps=4096,
+    batch_size=128,
+    learning_rate=3.3e-4,
+    ent_coef=0.005,
+    vf_coef=0.5,
+    max_grad_norm=0.5,
+    gamma=0.995,
+    gae_lambda=0.95,
 )
 
-model.learn(total_timesteps=steps)
+save_callback = CheckpointCallback(
+    save_freq=1_000_000,
+    save_path=SAVES_CALLBACK_DIR,
+    name_prefix="ppo_checkpoint"
+)
+
+model.learn(total_timesteps=steps, callback=save_callback)
 model.save(f'{MODEL_OUTPUT}/{model_name}')
 
 '''
 Part V - Test
 '''
-df_test = utils.df_date_filter(
-    from_date=test_date_range_start,
-    to_date=test_date_range_end,
-    df=df
-)
+
+
+feature_module = FeatureEngineeringModule(df_test)
+feature_module.apply_to_all_assets(assets)
+feature_module.remove_na_rows()
+
+feature_module.scale_standard(load_path="files/scaler.pkl")
+df_test = feature_module.get_featured_data()
 
 model = PPO.load(f'{MODEL_OUTPUT}/{model_name}')
 

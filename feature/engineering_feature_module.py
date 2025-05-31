@@ -2,11 +2,21 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from ta.momentum import RSIIndicator
 from ta.trend import MACD
+import joblib
+from sklearn.preprocessing import StandardScaler
 
 
 class FeatureEngineeringModule:
     def __init__(self, df):
         self.df = df.copy()
+
+    def normalize_features(self, save_path=None):
+
+        self.feature_cols = [col for col in self.df.columns if col != 'timestamp']
+        self.scaler = StandardScaler()
+        self.df[self.feature_cols] = self.scaler.fit_transform(self.df[self.feature_cols])
+        if save_path:
+            joblib.dump(self.scaler, save_path)
 
     def apply_technical_indicators(self, asset):
         price_col = f"{asset}_value"
@@ -26,24 +36,24 @@ class FeatureEngineeringModule:
     def get_featured_data(self):
         return self.df.dropna().reset_index(drop=True)
 
-    def scale_standard(self, exclude_value=True):
-        df = self.df.copy()
-        exclude = ['timestamp']
-        if exclude_value:
-            exclude += [col for col in df.columns if col.endswith('_value')]
-        scale_cols = [col for col in df.columns if col not in exclude and pd.api.types.is_numeric_dtype(df[col])]
-        scaler = StandardScaler()
-        df[scale_cols] = scaler.fit_transform(df[scale_cols])
-        self.df = df
-        return self.df
+    def scale_standard(self, save_path=None, load_path=None, exclude_value=True):
 
-    def scale_minmax(self, scaler, exclude_value=True):
         df = self.df.copy()
         exclude = ['timestamp']
         if exclude_value:
             exclude += [col for col in df.columns if col.endswith('_value')]
+
         scale_cols = [col for col in df.columns if col not in exclude and pd.api.types.is_numeric_dtype(df[col])]
-        df[scale_cols] = scaler.fit_transform(df[scale_cols])
+
+        if load_path:
+            self.scaler = joblib.load(load_path)
+        else:
+            self.scaler = StandardScaler()
+            self.scaler.fit(df[scale_cols])
+            if save_path:
+                joblib.dump(self.scaler, save_path)
+
+        df[scale_cols] = self.scaler.transform(df[scale_cols])
         self.df = df
         return self.df
 

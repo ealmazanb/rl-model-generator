@@ -22,11 +22,10 @@ SL_MAX = 9999999
 test_date_range_start = '2000-01-01'
 test_date_range_end = '2025-01-01'
 
-steps = 8_000_000
 policy = 'MlpPolicy'
 
 log_filename = 'ppo_trading_agent_v1_00_25'
-model_name = 'ppo_trading_agent_v1'
+model_name = 'ppo_trading_agent_v2_15M'
 
 utils = Utils()
 df = utils.load_dataset(f'{FILES_DIR}/full_dataset.csv')
