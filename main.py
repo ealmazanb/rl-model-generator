@@ -157,6 +157,7 @@ updates per epoch and stable training but slower corrections (128, 256, 512)
 model = PPO(
     policy='MlpPolicy',
     env=env,
+    tensorboard_log="./ppo_logs/",
     device="cuda",
     verbose=1,
     n_steps=4096,

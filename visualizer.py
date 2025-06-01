@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-log_filename = 'ppo_trading_agent_v1_00_25'
+log_filename = 'ppo_trading_agent_v4_00_25'
 df = pd.read_csv(f'logs/{log_filename}', parse_dates=['timestamp'])
 df['total_value'] = df['liquidity'] + df['asset_value']
 df['year'] = df['timestamp'].dt.year
